@@ -160,6 +160,16 @@ void Adafruit_MAX31865::enableBias(bool b) {
   writeRegister8(MAX31865_CONFIG_REG, t);
 }
 
+void Adafruit_MAX31865::enable50Hz(boolean b) {
+  uint8_t t = readRegister8(MAX31856_CONFIG_REG);
+  if (b) {
+    t |= MAX31856_CONFIG_FILT50HZ;
+  } else {
+    t &= ~MAX31856_CONFIG_FILT50HZ;
+  }
+  writeRegister8(MAX31856_CONFIG_REG, t);
+}
+
 /**************************************************************************/
 /*!
     @brief Whether we want to have continuous conversions (50/60 Hz)
