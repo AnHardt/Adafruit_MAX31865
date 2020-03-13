@@ -77,7 +77,7 @@ public:
   void setWires(max31865_numwires_t wires);
   void autoConvert(bool b);
   void enableBias(bool b);
-  void enable50Hz(boolean b);
+  void enable50Hz(bool b);
 
   float temperature(float RTDnominal, float refResistor);
 

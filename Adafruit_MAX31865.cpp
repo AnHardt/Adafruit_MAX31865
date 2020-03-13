@@ -160,14 +160,26 @@ void Adafruit_MAX31865::enableBias(bool b) {
   writeRegister8(MAX31865_CONFIG_REG, t);
 }
 
-void Adafruit_MAX31865::enable50Hz(boolean b) {
-  uint8_t t = readRegister8(MAX31856_CONFIG_REG);
-  if (b) {
-    t |= MAX31856_CONFIG_FILT50HZ;
-  } else {
-    t &= ~MAX31856_CONFIG_FILT50HZ;
+/**************************************************************************/
+/*!
+    @brief Enable the 50Hz-filter mode
+    @param b If true bias is enabled, else disabled
+*/
+/**************************************************************************/
+void Adafruit_MAX31865::enable50Hz(bool b) {
+  uint8_t t = readRegister8(MAX31865_CONFIG_REG);
+  bool automode = t & MAX31865_CONFIG_MODEAUTO;
+  if(automode) {
+    autoConvert(false);
+    t &= ~MAX31865_CONFIG_MODEAUTO;
   }
-  writeRegister8(MAX31856_CONFIG_REG, t);
+  if (b) {
+    t |= MAX31865_CONFIG_FILT50HZ;
+  } else {
+    t &= ~MAX31865_CONFIG_FILT50HZ;
+  }
+  writeRegister8(MAX31865_CONFIG_REG, t);
+  if (automode) autoConvert(true);
 }
 
 /**************************************************************************/
