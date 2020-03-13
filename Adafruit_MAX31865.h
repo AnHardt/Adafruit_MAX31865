@@ -83,7 +83,7 @@ public:
 
 private:
   int8_t _sclk, _miso, _mosi, _cs;
-  bool _fault;
+  bool _fault, _automode;
 
   void readRegisterN(uint8_t addr, uint8_t buffer[], uint8_t n);
 

@@ -86,7 +86,8 @@ bool Adafruit_MAX31865::begin(max31865_numwires_t wires) {
   setWires(wires);
   readFault(true); // perform a selftest
   enableBias(false);
-  autoConvert(false);
+  autoConvert(false); 
+  enable50Hz(false);
   clearFault();
 
   // Serial.print("config: ");
@@ -168,8 +169,7 @@ void Adafruit_MAX31865::enableBias(bool b) {
 /**************************************************************************/
 void Adafruit_MAX31865::enable50Hz(bool b) {
   uint8_t t = readRegister8(MAX31865_CONFIG_REG);
-  bool automode = t & MAX31865_CONFIG_MODEAUTO;
-  if(automode) {
+  if(_automode) {
     autoConvert(false);
     t &= ~MAX31865_CONFIG_MODEAUTO;
   }
@@ -179,7 +179,7 @@ void Adafruit_MAX31865::enable50Hz(bool b) {
     t &= ~MAX31865_CONFIG_FILT50HZ;
   }
   writeRegister8(MAX31865_CONFIG_REG, t);
-  if (automode) autoConvert(true);
+  if (_automode) autoConvert(true);
 }
 
 /**************************************************************************/
@@ -196,6 +196,8 @@ void Adafruit_MAX31865::autoConvert(bool b) {
     t &= ~MAX31865_CONFIG_MODEAUTO; // disable autoconvert
   }
   writeRegister8(MAX31865_CONFIG_REG, t);
+  _automode = b;
+  enableBias(b);
 }
 
 /**************************************************************************/
@@ -274,16 +276,25 @@ float Adafruit_MAX31865::temperature(float RTDnominal, float refResistor) {
 */
 /**************************************************************************/
 uint16_t Adafruit_MAX31865::readRTD(void) {
-  clearFault();
-  enableBias(true);
-  delay(10);
-  uint8_t t = readRegister8(MAX31865_CONFIG_REG);
-  t |= MAX31865_CONFIG_1SHOT;
-  writeRegister8(MAX31865_CONFIG_REG, t);
-  delay(65);
+  uint16_t rtd;
+  if (_automode) {
+    // Bias ans Automode are ON.
+    // This always results in a valid value.
+    // If the new concersion was not ready you will get the old value.
+    rtd = readRegister16(MAX31865_RTDMSB_REG);
+  } else {
+    clearFault();
+    enableBias(true);
+    delay(10);
+    uint8_t t = readRegister8(MAX31865_CONFIG_REG);
+    t |= MAX31865_CONFIG_1SHOT;
+    writeRegister8(MAX31865_CONFIG_REG, t);
+    delay(65);
 
-  uint16_t rtd = readRegister16(MAX31865_RTDMSB_REG);
+    rtd = readRegister16(MAX31865_RTDMSB_REG);
 
+    enableBias(false);	   // to lessen sensor self-heating
+  }
   enableBias(false); // to lessen sensor self-heating
 
   _fault = rtd & 0x0001; // Store the fault flag
