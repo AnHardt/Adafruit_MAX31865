@@ -67,6 +67,7 @@ public:
   Adafruit_MAX31865(int8_t spi_cs);
 
   bool begin(max31865_numwires_t x = MAX31865_2WIRE);
+  bool begin(uint8_t x);
 
   uint8_t readFault(void);
   uint8_t readFault(boolean b);
@@ -75,6 +76,7 @@ public:
   uint16_t readRTD();
 
   void setWires(max31865_numwires_t wires);
+  void set3Wires(bool b);
   void autoConvert(bool b);
   void enableBias(bool b);
   void enable50Hz(bool b);
@@ -83,7 +85,10 @@ public:
 
 private:
   int8_t _sclk, _miso, _mosi, _cs;
-  bool _fault, _automode;
+  bool _fault;
+  uint8_t _configuration;
+
+  uint8_t modifyConfig(uint8_t mask, bool set);
 
   void readRegisterN(uint8_t addr, uint8_t buffer[], uint8_t n);
 
