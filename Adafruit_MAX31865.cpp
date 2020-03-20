@@ -24,9 +24,6 @@
 #include <SPI.h>
 #include <stdlib.h>
 
-static SPISettings max31865_spisettings =
-    SPISettings(500000, MSBFIRST, SPI_MODE1);
-
 /**************************************************************************/
 /*!
     @brief Create the interface object using software (bitbang) SPI
@@ -34,26 +31,44 @@ static SPISettings max31865_spisettings =
     @param spi_mosi the SPI MOSI pin to use
     @param spi_miso the SPI MISO pin to use
     @param spi_clk the SPI clock pin to use
+    @param ready_pin the pin where the modules DRDY output is connected to.
 */
 /**************************************************************************/
-//
-Adafruit_MAX31865::Adafruit_MAX31865(int8_t spi_cs, int8_t spi_mosi,
-                                     int8_t spi_miso, int8_t spi_clk) {
-  _sclk = spi_clk;
-  _cs = spi_cs;
-  _miso = spi_miso;
-  _mosi = spi_mosi;
+
+Adafruit_MAX31865::Adafruit_MAX31865(int8_t spi_cs, int8_t spi_mosi, int8_t spi_miso, int8_t spi_clk, int8_t ready_pin) :
+  _spi_dev( spi_cs, spi_clk, spi_miso, spi_mosi, 5000000UL, SPI_BITORDER_MSBFIRST, SPI_MODE1),
+  _config_reg(&_spi_dev, 0x00, ADDRBIT8_HIGH_TOWRITE, 1, MSBFIRST),
+  _rRatio_reg(&_spi_dev, 0x01, ADDRBIT8_HIGH_TOWRITE, 2, MSBFIRST),
+  _maxRratio_reg(&_spi_dev, 0x03, ADDRBIT8_HIGH_TOWRITE, 2, MSBFIRST),
+  _minRratio_reg(&_spi_dev, 0x05, ADDRBIT8_HIGH_TOWRITE, 2, MSBFIRST),
+  _fault_reg(&_spi_dev, 0x07, ADDRBIT8_HIGH_TOWRITE, 1, MSBFIRST)
+{
+  _ready_pin = ready_pin;
 }
 
 /**************************************************************************/
 /*!
     @brief Create the interface object using hardware SPI
     @param spi_cs the SPI CS pin to use along with the default SPI device
+    @param theSPI the processors SPI device the module is connected to (if it has more than one)
+    @param ready_pin the pin where the modules DRDY output is connected to.
 */
 /**************************************************************************/
-Adafruit_MAX31865::Adafruit_MAX31865(int8_t spi_cs) {
-  _cs = spi_cs;
-  _sclk = _miso = _mosi = -1;
+
+  Adafruit_MAX31865::Adafruit_MAX31865(int8_t spi_cs, int8_t ready_pin, SPIClass *theSPI) :
+  Adafruit_MAX31865(spi_cs, theSPI, ready_pin)
+{}
+
+
+Adafruit_MAX31865::Adafruit_MAX31865(int8_t spi_cs, SPIClass *theSPI, int8_t ready_pin) :
+  _spi_dev( spi_cs, 5000000UL, SPI_BITORDER_MSBFIRST, SPI_MODE1, theSPI),
+  _config_reg(&_spi_dev, 0x00, ADDRBIT8_HIGH_TOWRITE, 1, MSBFIRST),
+  _rRatio_reg(&_spi_dev, 0x01, ADDRBIT8_HIGH_TOWRITE, 2, MSBFIRST),
+  _maxRratio_reg(&_spi_dev, 0x03, ADDRBIT8_HIGH_TOWRITE, 2, MSBFIRST),
+  _minRratio_reg(&_spi_dev, 0x05, ADDRBIT8_HIGH_TOWRITE, 2, MSBFIRST),
+  _fault_reg(&_spi_dev, 0x07, ADDRBIT8_HIGH_TOWRITE, 1, MSBFIRST)
+{
+  _ready_pin = ready_pin;
 }
 
 /**************************************************************************/
@@ -76,33 +91,32 @@ bool Adafruit_MAX31865::begin(max31865_numwires_t wires) {
     @return True if selfest detected no rerrors
 */
 /**************************************************************************/
-bool Adafruit_MAX31865::begin(uint8_t configuration) {
+bool Adafruit_MAX31865::begin(uint8_t configuration, float R0, float Rref, float R2wire) {
   _configuration = configuration & (MAX31865_CONFIG_BIAS | MAX31865_CONFIG_MODEAUTO | MAX31865_CONFIG_3WIRE | MAX31865_CONFIG_FILT50HZ);
   if (_configuration & MAX31865_CONFIG_MODEAUTO) // MODEAUTO without BIAS does not make sense
     _configuration |= (MAX31865_CONFIG_BIAS | MAX31865_CONFIG_MODEAUTO);
 
-  pinMode(_cs, OUTPUT);
-  digitalWrite(_cs, HIGH);
-
-  if (_sclk != -1) {
-    // define pin modes
-    pinMode(_sclk, OUTPUT);
-    digitalWrite(_sclk, LOW);
-    pinMode(_mosi, OUTPUT);
-    pinMode(_miso, INPUT);
-  } else {
-    // start and configure hardware SPI
-    SPI.begin();
+  if (_ready_pin >= 0) {
+    pinMode(_ready_pin, INPUT_PULLUP);
   }
 
+  _R0 = R0;
+  _Rref = Rref;
+  _ratioToRfactor = _Rref / ((1u << 15) - 1.0f);
+  _R2wire = R2wire;
+
+  _spi_dev.begin();
+   
   set3Wires(_configuration & MAX31865_CONFIG_3WIRE);
   enable50Hz(_configuration & MAX31865_CONFIG_FILT50HZ);
   uint8_t err = readFault(true); // perform a selftest
-  writeRegister8(MAX31865_CONFIG_REG, _configuration);
+  // ToDo: errorhandling!
+  _config_reg.write(_configuration, 1);
+
   clearFault();
 
   //Serial.println(_configuration, HEX);
-  //Serial.println(readRegister8(MAX31865_CONFIG_REG), HEX);
+  //Serial.println(uint8_t(_config_reg.read()), HEX);
   return (err == 0);
 }
 
@@ -120,7 +134,7 @@ uint8_t Adafruit_MAX31865::modifyConfig(uint8_t mask, bool set) {
   } else {
     _configuration &= ~ mask; // disable bias
   }
-  writeRegister8(MAX31865_CONFIG_REG, _configuration);
+  _config_reg.write(_configuration, 1);
   return _configuration;
 }
 
@@ -139,7 +153,7 @@ bool Adafruit_MAX31865::checkFault(void) { return _fault; }
 */
 /**************************************************************************/
 uint8_t Adafruit_MAX31865::readFault(void) {
-  return readRegister8(MAX31865_FAULTSTAT_REG);
+  return _fault_reg.read();
 }
 
 /**************************************************************************/
@@ -153,11 +167,11 @@ uint8_t Adafruit_MAX31865::readFault(boolean b) {
   if (b) {
     // B100X010X
     uint8_t t = MAX31865_CONFIG_FAULTDETCYCLE | (_configuration & (MAX31865_CONFIG_3WIRE | MAX31865_CONFIG_FILT50HZ));
-    writeRegister8(MAX31865_CONFIG_REG, t);
+    _config_reg.write( t, 1 );
     delay(5); // wait for 5ms
   }
-  writeRegister8(MAX31865_CONFIG_REG, _configuration); // restore configuration
-  return readRegister8(MAX31865_FAULTSTAT_REG);
+  _config_reg.write( _configuration, 1 );
+  return _fault_reg.read();
 }
 
 /**************************************************************************/
@@ -166,7 +180,7 @@ uint8_t Adafruit_MAX31865::readFault(boolean b) {
 */
 /**************************************************************************/
 void Adafruit_MAX31865::clearFault(void) {
-  writeRegister8(MAX31865_CONFIG_REG, _configuration | MAX31865_CONFIG_FAULTSTAT);
+  _config_reg.write( _configuration | MAX31865_CONFIG_FAULTSTAT, 1 );
   _fault = false;
 }
 
@@ -289,17 +303,18 @@ uint16_t Adafruit_MAX31865::readRTD(void) {
     // Bias current and Automode are ON.
     // This always results in a valid value.
     // If the new concersion was not ready you will get the old value.
-    rtd = readRegister16(MAX31865_RTDMSB_REG);
+    rtd = _rRatio_reg.read();
+
   } else {
     clearFault();
     enableBias(true);
     delay(10);
-    uint8_t t = readRegister8(MAX31865_CONFIG_REG);
+    uint8_t t = _config_reg.read();
     t |= MAX31865_CONFIG_1SHOT;
-    writeRegister8(MAX31865_CONFIG_REG, t);
+    _config_reg.write( t, 1 );
     delay(65);
 
-    rtd = readRegister16(MAX31865_RTDMSB_REG);
+    rtd = _rRatio_reg.read();
 
     enableBias(false);	 // to lessen sensor self-heating
   }
@@ -309,91 +324,4 @@ uint16_t Adafruit_MAX31865::readRTD(void) {
   rtd >>= 1; // remove fault
 
   return rtd;
-}
-
-/**********************************************/
-
-uint8_t Adafruit_MAX31865::readRegister8(uint8_t addr) {
-  uint8_t ret = 0;
-  readRegisterN(addr, &ret, 1);
-
-  return ret;
-}
-
-uint16_t Adafruit_MAX31865::readRegister16(uint8_t addr) {
-  uint8_t buffer[2] = {0, 0};
-  readRegisterN(addr, buffer, 2);
-
-  uint16_t ret = buffer[0];
-  ret <<= 8;
-  ret |= buffer[1];
-
-  return ret;
-}
-
-void Adafruit_MAX31865::readRegisterN(uint8_t addr, uint8_t buffer[],
-                                      uint8_t n) {
-  addr &= 0x7F; // make sure top bit is not set
-
-  if (_sclk == -1)
-    SPI.beginTransaction(max31865_spisettings);
-  else
-    digitalWrite(_sclk, LOW);
-
-  digitalWrite(_cs, LOW);
-
-  spixfer(addr);
-
-  // Serial.print("$"); Serial.print(addr, HEX); Serial.print(": ");
-  while (n--) {
-    buffer[0] = spixfer(0xFF);
-    // Serial.print(" 0x"); Serial.print(buffer[0], HEX);
-    buffer++;
-  }
-  // Serial.println();
-
-  if (_sclk == -1)
-    SPI.endTransaction();
-
-  digitalWrite(_cs, HIGH);
-}
-
-void Adafruit_MAX31865::writeRegister8(uint8_t addr, uint8_t data) {
-  if (_sclk == -1)
-    SPI.beginTransaction(max31865_spisettings);
-  else
-    digitalWrite(_sclk, LOW);
-
-  digitalWrite(_cs, LOW);
-
-  spixfer(addr | 0x80); // make sure top bit is set
-  spixfer(data);
-
-  // Serial.print("$"); Serial.print(addr, HEX); Serial.print(" = 0x");
-  // Serial.println(data, HEX);
-
-  if (_sclk == -1)
-    SPI.endTransaction();
-
-  digitalWrite(_cs, HIGH);
-}
-
-uint8_t Adafruit_MAX31865::spixfer(uint8_t x) {
-  if (_sclk == -1)
-    return SPI.transfer(x);
-
-  // software spi
-  // Serial.println("Software SPI");
-  uint8_t reply = 0;
-
-  for (int i = 7; i >= 0; i--) {
-    reply <<= 1;
-    digitalWrite(_sclk, HIGH);
-    digitalWrite(_mosi, x & (1 << i));
-    digitalWrite(_sclk, LOW);
-    if (digitalRead(_miso))
-      reply |= 1;
-  }
-
-  return reply;
 }

@@ -14,26 +14,30 @@
   BSD license, all text above must be included in any redistribution
  ****************************************************/
 
+
+#include <Adafruit_BusIO_Register.h>
+#include <Adafruit_SPIDevice.h>
+
 #include <Adafruit_MAX31865.h>
 #include "filterring.h"
 
-Filter Pt100Filter = Filter(100);
-
-// Use software SPI: CS, DI, DO, CLK
-// Adafruit_MAX31865 thermo = Adafruit_MAX31865(10, 11, 12, 13);
-// use hardware SPI, just pass in the CS pin
-   Adafruit_MAX31865 thermo = Adafruit_MAX31865(10);
-
 #define MAX31865_READY_PIN (2)
 
+Filter Pt100Filter = Filter(100);
+
+// Use software SPI: CS, DI, DO, CLK, [ready]
+  //Adafruit_MAX31865 thermo = Adafruit_MAX31865(10, 11, 12, 13, MAX31865_READY_PIN);
+// use hardware SPI, just pass in the CS pin and optionally the ready pin
+  Adafruit_MAX31865 thermo = Adafruit_MAX31865(10, MAX31865_READY_PIN);
+
 // The value of the Rref resistor. Use 430.0 for PT100 and 4300.0 for PT1000
-#define RREF      430.0
+#define RREF      430.0f
 // The 'nominal' 0-degrees-C resistance of the sensor
 // 100.0 for PT100, 1000.0 for PT1000
-#define RNOMINAL  100.0
+#define RNOMINAL  100.0f
 
 void setup() {
-  #if (MAX31865_1_READY_PIN != -1)
+  #if (defined(MAX31865_1_READY_PIN) && MAX31865_1_READY_PIN != -1)
     pinMode(MAX31865_READY_PIN ,INPUT_PULLUP);
   #endif
 

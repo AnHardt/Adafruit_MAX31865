@@ -53,6 +53,10 @@
 #include "WProgram.h"
 #endif
 
+#include <Adafruit_BusIO_Register.h>
+#include <Adafruit_SPIDevice.h>
+#include <SPI.h>
+
 typedef enum max31865_numwires {
   MAX31865_2WIRE = 0,
   MAX31865_3WIRE = 1,
@@ -62,12 +66,13 @@ typedef enum max31865_numwires {
 /*! Interface class for the MAX31865 RTD Sensor reader */
 class Adafruit_MAX31865 {
 public:
-  Adafruit_MAX31865(int8_t spi_cs, int8_t spi_mosi, int8_t spi_miso,
-                    int8_t spi_clk);
-  Adafruit_MAX31865(int8_t spi_cs);
+
+  Adafruit_MAX31865(int8_t spi_cs, int8_t spi_mosi, int8_t spi_miso, int8_t spi_clk, int8_t ready_pin = -1);
+  Adafruit_MAX31865(int8_t spi_cs, SPIClass *theSPI, int8_t ready_pin = -1);
+  Adafruit_MAX31865(int8_t spi_cs, int8_t ready_pin = -1, SPIClass *theSPI = &SPI);
 
   bool begin(max31865_numwires_t x = MAX31865_2WIRE);
-  bool begin(uint8_t x);
+  bool begin(uint8_t x, float R0 = 100.0f, float Rref = 430.0f, float R2wire = 0.0f);
 
   uint8_t readFault(void);
   uint8_t readFault(boolean b);
@@ -84,19 +89,25 @@ public:
   float temperature(float RTDnominal, float refResistor);
 
 private:
-  int8_t _sclk, _miso, _mosi, _cs;
-  bool _fault;
-  uint8_t _configuration;
+  // The pins
+  int8_t _ready_pin;
+  // states
+  bool _fault = false;
+  uint8_t _configuration = 0;
+  // constants
+  Adafruit_SPIDevice _spi_dev;
+  Adafruit_BusIO_Register _config_reg;
+  Adafruit_BusIO_Register _rRatio_reg;
+  Adafruit_BusIO_Register _maxRratio_reg;
+  Adafruit_BusIO_Register _minRratio_reg;
+  Adafruit_BusIO_Register _fault_reg;
 
+  float _R0 = 0.0f;
+  float _Rref = 430.0f;
+  float _ratioToRfactor = _Rref / ((1u << 15) - 1.0f);
+  float _R2wire = 0.0f;
+  // functions
   uint8_t modifyConfig(uint8_t mask, bool set);
-
-  void readRegisterN(uint8_t addr, uint8_t buffer[], uint8_t n);
-
-  uint8_t readRegister8(uint8_t addr);
-  uint16_t readRegister16(uint8_t addr);
-
-  void writeRegister8(uint8_t addr, uint8_t reg);
-  uint8_t spixfer(uint8_t addr);
 };
 
 #endif
