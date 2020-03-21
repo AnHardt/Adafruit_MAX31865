@@ -16,9 +16,9 @@
 
 #include "Adafruit_MAX31865.h"
 #ifdef __AVR
-#include <avr/pgmspace.h>
+  #include <avr/pgmspace.h>
 #elif defined(ESP8266)
-#include <pgmspace.h>
+  #include <pgmspace.h>
 #endif
 
 #include <SPI.h>
@@ -37,11 +37,11 @@
 
 Adafruit_MAX31865::Adafruit_MAX31865(int8_t spi_cs, int8_t spi_mosi, int8_t spi_miso, int8_t spi_clk, int8_t ready_pin) :
   _spi_dev( spi_cs, spi_clk, spi_miso, spi_mosi, 5000000UL, SPI_BITORDER_MSBFIRST, SPI_MODE1),
-  _config_reg(&_spi_dev, 0x00, ADDRBIT8_HIGH_TOWRITE, 1, MSBFIRST),
-  _rRatio_reg(&_spi_dev, 0x01, ADDRBIT8_HIGH_TOWRITE, 2, MSBFIRST),
-  _maxRratio_reg(&_spi_dev, 0x03, ADDRBIT8_HIGH_TOWRITE, 2, MSBFIRST),
-  _minRratio_reg(&_spi_dev, 0x05, ADDRBIT8_HIGH_TOWRITE, 2, MSBFIRST),
-  _fault_reg(&_spi_dev, 0x07, ADDRBIT8_HIGH_TOWRITE, 1, MSBFIRST)
+  _config_reg(&_spi_dev, MAX31865_CONFIG_REG, ADDRBIT8_HIGH_TOWRITE, 1, MSBFIRST),
+  _rRatio_reg(&_spi_dev, MAX31865_RTDMSB_REG, ADDRBIT8_HIGH_TOWRITE, 2, MSBFIRST),
+  _maxRratio_reg(&_spi_dev, MAX31865_HFAULTMSB_REG, ADDRBIT8_HIGH_TOWRITE, 2, MSBFIRST),
+  _minRratio_reg(&_spi_dev, MAX31865_LFAULTMSB_REG, ADDRBIT8_HIGH_TOWRITE, 2, MSBFIRST),
+  _fault_reg(&_spi_dev, MAX31865_FAULTSTAT_REG, ADDRBIT8_HIGH_TOWRITE, 1, MSBFIRST)
 {
   _ready_pin = ready_pin;
 }
@@ -62,11 +62,11 @@ Adafruit_MAX31865::Adafruit_MAX31865(int8_t spi_cs, int8_t spi_mosi, int8_t spi_
 
 Adafruit_MAX31865::Adafruit_MAX31865(int8_t spi_cs, SPIClass *theSPI, int8_t ready_pin) :
   _spi_dev( spi_cs, 5000000UL, SPI_BITORDER_MSBFIRST, SPI_MODE1, theSPI),
-  _config_reg(&_spi_dev, 0x00, ADDRBIT8_HIGH_TOWRITE, 1, MSBFIRST),
-  _rRatio_reg(&_spi_dev, 0x01, ADDRBIT8_HIGH_TOWRITE, 2, MSBFIRST),
-  _maxRratio_reg(&_spi_dev, 0x03, ADDRBIT8_HIGH_TOWRITE, 2, MSBFIRST),
-  _minRratio_reg(&_spi_dev, 0x05, ADDRBIT8_HIGH_TOWRITE, 2, MSBFIRST),
-  _fault_reg(&_spi_dev, 0x07, ADDRBIT8_HIGH_TOWRITE, 1, MSBFIRST)
+  _config_reg(&_spi_dev, MAX31865_CONFIG_REG, ADDRBIT8_HIGH_TOWRITE, 1, MSBFIRST),
+  _rRatio_reg(&_spi_dev, MAX31865_RTDMSB_REG, ADDRBIT8_HIGH_TOWRITE, 2, MSBFIRST),
+  _maxRratio_reg(&_spi_dev, MAX31865_HFAULTMSB_REG, ADDRBIT8_HIGH_TOWRITE, 2, MSBFIRST),
+  _minRratio_reg(&_spi_dev, MAX31865_LFAULTMSB_REG, ADDRBIT8_HIGH_TOWRITE, 2, MSBFIRST),
+  _fault_reg(&_spi_dev, MAX31865_FAULTSTAT_REG, ADDRBIT8_HIGH_TOWRITE, 1, MSBFIRST)
 {
   _ready_pin = ready_pin;
 }
@@ -240,6 +240,128 @@ void Adafruit_MAX31865::set3Wires(bool b) {
   modifyConfig(MAX31865_CONFIG_3WIRE, b);
 }
 
+void Adafruit_MAX31865::setMaxRatio(uint16_t r) {
+  _maxRratio_reg.write(r << 1, 2);
+}
+
+void Adafruit_MAX31865::setMinRatio(uint16_t r) {
+  _minRratio_reg.write(r << 1, 2);
+}
+
+uint16_t Adafruit_MAX31865::getMaxRatio(void) {
+  return _maxRratio_reg.read() >> 1;
+}
+
+uint16_t Adafruit_MAX31865::getMinRatio(void) {
+  return _minRratio_reg.read() >> 1;
+}
+
+/**************************************************************************/
+/*!
+    @brief Read the raw 16-bit value from the RTD_REG in one shot mode
+    @return The raw unsigned 16-bit value, NOT temperature!
+*/
+/**************************************************************************/
+uint16_t Adafruit_MAX31865::readRTD(void) {
+  uint16_t rtd;
+  if (_configuration & MAX31865_CONFIG_MODEAUTO) {
+    // Bias current and Automode are ON.
+    // This always results in a valid value.
+    // If the new concersion was not ready you will get the old value.
+    rtd = _rRatio_reg.read();
+
+  } else {
+    clearFault();
+    enableBias(true);
+    delay(10);
+    uint8_t t = _config_reg.read();
+    t |= MAX31865_CONFIG_1SHOT;
+    _config_reg.write( t, 1 );
+    delay(65);
+
+    rtd = _rRatio_reg.read();
+
+    enableBias(false);	 // to lessen sensor self-heating
+  }
+
+  _fault = rtd & 0x0001; // Store the fault flag
+
+  rtd >>= 1; // remove fault
+
+  return rtd;
+}
+
+uint16_t Adafruit_MAX31865::RtoRatio(float R) {
+  //Serial.print("RtoRatio Ratio: ");
+  //Serial.println(R / _ratioToRfactor);
+  return uint16_t(R / _ratioToRfactor);
+}
+
+float Adafruit_MAX31865::RatioToR(uint16_t r) {
+  //Serial.print("RatioToR Ratio: ");
+  //Serial.println(r * _ratioToRfactor, 4);
+  return uint16_t(r * _ratioToRfactor);
+}
+
+//   http://www.analog.com/media/en/technical-documentation/application-notes/AN709_0.pdf
+//   technique
+
+float Adafruit_MAX31865::CtoR(float C) {
+  float nt = (C < 0) ? RTD_C * (C - 100.0f) * C : 0.0f;
+  return _R0 * (1 + (RTD_A + (RTD_B + nt) * C) * C);
+}
+
+float Adafruit_MAX31865::RtoC(float R) {
+  float temp;
+
+  if (_R0 != 100.0)
+    R *= 100.0 / _R0;
+
+  if (R >= 100.0) { // above 100 Ohm temperature will become positive
+    const float Z1 = -RTD_A;
+    const float Z2 = RTD_A * RTD_A - (4 * RTD_B);
+    const float Z3 = (4 * RTD_B) / 100.0;
+    const float Z4 = 2 * RTD_B;
+
+    temp = sqrt(Z2 + (Z3 * R));
+    temp = (temp + Z1) / Z4;
+  } else {
+    float rpoly = R;
+
+    temp = RTD_0;
+    temp += RTD_1 * rpoly;
+    rpoly *= R; // square
+    temp += RTD_2 * rpoly;
+    rpoly *= R; // ^3
+    temp += RTD_3 * rpoly;
+    rpoly *= R; // ^4
+    temp += RTD_4 * rpoly;
+    rpoly *= R; // ^5
+    temp += RTD_5 * rpoly;
+  }
+  return temp;
+}
+
+void Adafruit_MAX31865::setMaxTemp(float C) {
+  setMaxRatio( RtoRatio( CtoR(C) + _R2wire));
+}
+
+float Adafruit_MAX31865::getMaxTemp(void) {
+  return RtoC( RatioToR( getMaxRatio()) - _R2wire);
+}
+
+void Adafruit_MAX31865::setMinTemp(float C) {
+  setMinRatio( RtoRatio( CtoR(C) + _R2wire));
+}
+
+float Adafruit_MAX31865::getMinTemp(void) {
+  return RtoC( RatioToR( getMinRatio()) - _R2wire);
+}
+
+float Adafruit_MAX31865::temperature(void) {
+  return RtoC( RatioToR( readRTD()) - _R2wire);
+}
+
 /**************************************************************************/
 /*!
     @brief Read the temperature in C from the RTD through calculation of the
@@ -291,37 +413,3 @@ float Adafruit_MAX31865::temperature(float RTDnominal, float refResistor) {
   return temp;
 }
 
-/**************************************************************************/
-/*!
-    @brief Read the raw 16-bit value from the RTD_REG in one shot mode
-    @return The raw unsigned 16-bit value, NOT temperature!
-*/
-/**************************************************************************/
-uint16_t Adafruit_MAX31865::readRTD(void) {
-  uint16_t rtd;
-  if (_configuration & MAX31865_CONFIG_MODEAUTO) {
-    // Bias current and Automode are ON.
-    // This always results in a valid value.
-    // If the new concersion was not ready you will get the old value.
-    rtd = _rRatio_reg.read();
-
-  } else {
-    clearFault();
-    enableBias(true);
-    delay(10);
-    uint8_t t = _config_reg.read();
-    t |= MAX31865_CONFIG_1SHOT;
-    _config_reg.write( t, 1 );
-    delay(65);
-
-    rtd = _rRatio_reg.read();
-
-    enableBias(false);	 // to lessen sensor self-heating
-  }
-
-  _fault = rtd & 0x0001; // Store the fault flag
-
-  rtd >>= 1; // remove fault
-
-  return rtd;
-}

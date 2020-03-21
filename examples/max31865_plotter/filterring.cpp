@@ -16,13 +16,16 @@ void Filter::fill(float newVal){
 
 float Filter::request(void) {
   float ringSum = 0.0f;
-  for (uint8_t i = 0;  i < _loopEnd; i++) ringSum += _ring[i];  // summ up the values
+  for (uint8_t i = 0;  i < _loopEnd; i++) 
+    ringSum += _ring[i];                  // summ up the values
   return ringSum / (max(_loopEnd, 1.0f)); // don't devide by 0 if request() is caled before the first call of fill().
 }
 
 void Filter::length(uint8_t len) {
-  _len = len;
+  float oldVal = request();
+  _len = min(len, MAXRINGLENGTH);
+  for (uint8_t i = 0; i <= _len; i++) _ring[i] = oldVal;
   _ringIndex = 0;
-  _ringFull = false;
-  _loopEnd = 0;
+  _ringFull = true;
+  _loopEnd = _len;
 }

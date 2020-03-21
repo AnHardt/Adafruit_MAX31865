@@ -28,13 +28,16 @@ Filter Pt100Filter = Filter(100);
 // Use software SPI: CS, DI, DO, CLK, [ready]
   //Adafruit_MAX31865 thermo = Adafruit_MAX31865(10, 11, 12, 13, MAX31865_READY_PIN);
 // use hardware SPI, just pass in the CS pin and optionally the ready pin
-  Adafruit_MAX31865 thermo = Adafruit_MAX31865(10, MAX31865_READY_PIN);
+  Adafruit_MAX31865 thermo = Adafruit_MAX31865(10, MAX31865_READY_PIN, &SPI);
 
-// The value of the Rref resistor. Use 430.0 for PT100 and 4300.0 for PT1000
-#define RREF      430.0f
 // The 'nominal' 0-degrees-C resistance of the sensor
 // 100.0 for PT100, 1000.0 for PT1000
 #define RNOMINAL  100.0f
+// The value of the Rref resistor. Use 430.0 for PT100 and 4300.0 for PT1000
+#define RREF      430.0f
+// The resistance of the wires to the sonsor - can't automatically be compensated for in 2Wire-mode.
+// But we can do it manually wit this value.
+#define R2WIRE    0.0f
 
 void setup() {
   #if (defined(MAX31865_1_READY_PIN) && MAX31865_1_READY_PIN != -1)
@@ -45,7 +48,7 @@ void setup() {
   Serial.println("Adafruit MAX31865 PT100 Sensor Test in MODEAUTO!");
 
   //thermo.begin(/*MAX31865_CONFIG_MODEAUTO |*/ MAX31865_CONFIG_24WIRE | MAX31865_CONFIG_FILT50HZ);
-  thermo.begin(MAX31865_CONFIG_MODEAUTO | MAX31865_CONFIG_24WIRE | MAX31865_CONFIG_FILT50HZ);
+  thermo.begin(MAX31865_CONFIG_MODEAUTO | MAX31865_CONFIG_24WIRE | MAX31865_CONFIG_FILT50HZ, RNOMINAL, RREF, R2WIRE);
 }
 
 void loop() {
@@ -91,6 +94,7 @@ void loop() {
     case '5': thermo.enable50Hz(true); break;                     // set 50HZ
     case '6': thermo.enable50Hz(false); break;                    // set 60HZ
     case 'a': thermo.autoConvert(true); Automode = true; break;   // set AUTO_MODE
+    case 'c': thermo.clearFault(); break;                         // clear Faults
     case 'h': Pt = 100.0; Rr = 430.0; break;                      // set Adafruit PT100-module
     case 'k': Pt = 1000.0; Rr = 4300.0; break;                    // set Adafruit PT1000-module
     case 'r': printResistance = !printResistance; break;          // toggle print resistance
@@ -112,6 +116,20 @@ void loop() {
                 L = parseuint32();
                 L = constrain(L, 1, 254);
                 Pt100Filter.length(L);
+              }
+              break;
+    case '+': { 
+                int L = 16;                                       // set upper alarm temperature
+                L = parseuint32();
+                L = constrain(L, -200, 850);
+                thermo.setMaxTemp(L);
+              }
+              break;
+    case '-': { 
+                int L = 16;                                       // set lower alarm temperature
+                L = parseuint32();
+                L = constrain(L, -200, 850);
+                thermo.setMinTemp(L);
               }
               break;
     default: ;

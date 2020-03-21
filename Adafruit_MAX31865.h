@@ -14,9 +14,9 @@
   BSD license, all text above must be included in any redistribution
  ****************************************************/
 
-#ifndef ADAFRUIT_MAX31865_H
-#define ADAFRUIT_MAX31865_H
+#pragma once
 
+// MAX31865
 #define MAX31865_CONFIG_REG 0x00
 #define MAX31865_CONFIG_BIAS 0x80
 #define MAX31865_CONFIG_MODEAUTO 0x40
@@ -44,13 +44,22 @@
 #define MAX31865_FAULT_RTDINLOW 0x08
 #define MAX31865_FAULT_OVUV 0x04
 
+// PT100
 #define RTD_A 3.9083e-3
 #define RTD_B -5.775e-7
+#define RTD_C -4.183e-12
+
+#define RTD_0 -242.02
+#define RTD_1 2.2228
+#define RTD_2 2.5859e-3
+#define RTD_3 -4.8260e-6
+#define RTD_4 -2.8183e-8
+#define RTD_5 1.5243e-10
 
 #if (ARDUINO >= 100)
-#include "Arduino.h"
+  #include <Arduino.h>
 #else
-#include "WProgram.h"
+  #include <WProgram.h>
 #endif
 
 #include <Adafruit_BusIO_Register.h>
@@ -72,13 +81,16 @@ public:
   Adafruit_MAX31865(int8_t spi_cs, int8_t ready_pin = -1, SPIClass *theSPI = &SPI);
 
   bool begin(max31865_numwires_t x = MAX31865_2WIRE);
-  bool begin(uint8_t x, float R0 = 100.0f, float Rref = 430.0f, float R2wire = 0.0f);
+  bool begin(uint8_t configuration, float R0 = 100.0f, float Rref = 430.0f, float R2wire = 0.0f);
 
-  uint8_t readFault(void);
-  uint8_t readFault(boolean b);
-  bool checkFault(void);
-  void clearFault(void);
+  float temperature(float RTDnominal, float refResistor);
+  float temperature(void);
   uint16_t readRTD();
+
+  bool checkFault(void);
+  uint8_t readFault(void);
+  uint8_t readFault(bool b);
+  void clearFault(void);
 
   void setWires(max31865_numwires_t wires);
   void set3Wires(bool b);
@@ -86,7 +98,10 @@ public:
   void enableBias(bool b);
   void enable50Hz(bool b);
 
-  float temperature(float RTDnominal, float refResistor);
+  void setMaxTemp(float C);
+  float getMaxTemp(void);
+  void setMinTemp(float C);
+  float getMinTemp(void);
 
 private:
   // The pins
@@ -102,12 +117,19 @@ private:
   Adafruit_BusIO_Register _minRratio_reg;
   Adafruit_BusIO_Register _fault_reg;
 
-  float _R0 = 0.0f;
+  float _R0 = 100.0f;
   float _Rref = 430.0f;
   float _ratioToRfactor = _Rref / ((1u << 15) - 1.0f);
   float _R2wire = 0.0f;
   // functions
   uint8_t modifyConfig(uint8_t mask, bool set);
-};
 
-#endif
+  float CtoR(float C);
+  uint16_t RtoRatio(float R);
+  void setMaxRatio(uint16_t r);
+  void setMinRatio(uint16_t r);
+  uint16_t getMaxRatio(void);
+  uint16_t getMinRatio(void);
+  float RatioToR(uint16_t r);
+  float RtoC(float R);
+};
