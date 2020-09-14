@@ -101,6 +101,7 @@ bool Adafruit_MAX31865::begin(uint8_t configuration, float R0, float Rref, float
   }
 
   _R0 = R0;
+  _Z3 = (4 * RTD_B) / _R0;
   _Rref = Rref;
   _ratioToRfactor = _Rref / ((1u << 15) - 1.0f);
   _R2wire = R2wire;
@@ -300,46 +301,7 @@ uint16_t Adafruit_MAX31865::RtoRatio(float R) {
 float Adafruit_MAX31865::RatioToR(uint16_t r) {
   //Serial.print("RatioToR Ratio: ");
   //Serial.println(r * _ratioToRfactor, 4);
-  return uint16_t(r * _ratioToRfactor);
-}
-
-//   http://www.analog.com/media/en/technical-documentation/application-notes/AN709_0.pdf
-//   technique
-
-float Adafruit_MAX31865::CtoR(float C) {
-  float nt = (C < 0) ? RTD_C * (C - 100.0f) * C : 0.0f;
-  return _R0 * (1 + (RTD_A + (RTD_B + nt) * C) * C);
-}
-
-float Adafruit_MAX31865::RtoC(float R) {
-  float temp;
-
-  if (_R0 != 100.0)
-    R *= 100.0 / _R0;
-
-  if (R >= 100.0) { // above 100 Ohm temperature will become positive
-    const float Z1 = -RTD_A;
-    const float Z2 = RTD_A * RTD_A - (4 * RTD_B);
-    const float Z3 = (4 * RTD_B) / 100.0;
-    const float Z4 = 2 * RTD_B;
-
-    temp = sqrt(Z2 + (Z3 * R));
-    temp = (temp + Z1) / Z4;
-  } else {
-    float rpoly = R;
-
-    temp = RTD_0;
-    temp += RTD_1 * rpoly;
-    rpoly *= R; // square
-    temp += RTD_2 * rpoly;
-    rpoly *= R; // ^3
-    temp += RTD_3 * rpoly;
-    rpoly *= R; // ^4
-    temp += RTD_4 * rpoly;
-    rpoly *= R; // ^5
-    temp += RTD_5 * rpoly;
-  }
-  return temp;
+  return r * _ratioToRfactor;
 }
 
 void Adafruit_MAX31865::setMaxTemp(float C) {
@@ -362,54 +324,132 @@ float Adafruit_MAX31865::temperature(void) {
   return RtoC( RatioToR( readRTD()) - _R2wire);
 }
 
-/**************************************************************************/
-/*!
-    @brief Read the temperature in C from the RTD through calculation of the
-    resistance. Uses
-   http://www.analog.com/media/en/technical-documentation/application-notes/AN709_0.pdf
-   technique
-    @param RTDnominal The 'nominal' resistance of the RTD sensor, usually 100
-    or 1000
-    @param refResistor The value of the matching reference resistor, usually
-    430 or 4300
-    @returns Temperature in C
-*/
-/**************************************************************************/
-float Adafruit_MAX31865::temperature(float RTDnominal, float refResistor) {
-  float Z1, Z2, Z3, Z4, Rt, temp;
-
-  Rt = readRTD();
-  Rt /= 32768;
-  Rt *= refResistor;
-
-  // Serial.print("\nResistance: "); Serial.println(Rt, 8);
-
-  // first, if needed, normalize to 100 ohm
-  if (RTDnominal != 100.0)
-    Rt *= 100.0 / RTDnominal;
-
-  if (Rt >= 100.0) { // above 100 Ohm temperature will become positive
-    Z1 = -RTD_A;
-    Z2 = RTD_A * RTD_A - (4 * RTD_B);
-    Z3 = (4 * RTD_B) / 100.0;
-    Z4 = 2 * RTD_B;
-
-    temp = Z2 + (Z3 * Rt);
-    temp = (sqrt(temp) + Z1) / Z4;
-  } else {
-    float rpoly = Rt;
-
-    temp = -242.02;
-    temp += 2.2228 * rpoly;
-    rpoly *= Rt; // square
-    temp += 2.5859e-3 * rpoly;
-    rpoly *= Rt; // ^3
-    temp -= 4.8260e-6 * rpoly;
-    rpoly *= Rt; // ^4
-    temp -= 2.8183e-8 * rpoly;
-    rpoly *= Rt; // ^5
-    temp += 1.5243e-10 * rpoly;
-  }
-  return temp;
+float Adafruit_MAX31865::RtoC(float R) {
+  //Serial.print("R: "); Serial.println(R,6);
+  #ifdef PT_RATIONAL
+    if (R < RTD_R_BORDER) return RtoC_rational(R);
+  #endif
+  #ifdef PT_POLY5
+    if (R < RTD_5_BORDER) return RtoC_poly5(R);
+  #endif
+  #ifdef PT_POLY4
+    if (R < RTD_4_BORDER) return RtoC_poly4(R);
+  #endif
+  #ifdef PT_POLY3
+    if (R < RTD_3_BORDER) return RtoC_poly3(R);
+  #endif
+  #ifdef PT_POLY2
+    if (R < RTD_2_BORDER) return RtoC_poly2(R);
+  #endif
+  #ifdef PT_CVD 
+    return RtoC_cvd(R);
+  #endif
+  #ifdef PT_LINEAR_B
+    return RtoC_linearB(R);
+  #endif
+  #ifdef PT_LINEAR
+    return RtoC_linear(R);
+  #endif
+  
 }
 
+// CVD forward calculation. Was used to define the temperature scale
+// http://www.analog.com/media/en/technical-documentation/application-notes/AN709_0.pdf
+// technique
+float Adafruit_MAX31865::CtoR(float C) {
+  float nt = (C < 0.0f) ? RTD_C * (C - 100.0f) * C : 0.0f;
+  return _R0 * (1 + (RTD_A + (RTD_B + nt) * C) * C);
+}
+
+// inverse callendar van dusen formula.
+// accurate from 0C up to 850 C.
+#ifdef PT_CVD
+  float Adafruit_MAX31865::RtoC_cvd(float R) {
+    return ( sqrt(_Z2 + (_Z3 * R) ) + _Z1) / _Z4;
+  }
+#endif
+
+
+#ifdef PT_RATIONAL
+  // Rational polynomial fraction approximation taken from
+  // Mosaic Industries.com page on "RTD calibration."
+  // Accurate, probably beyond the ITS-90 spec
+  float Adafruit_MAX31865::RtoC_rational(float R) {
+    float z = R * (RTD_R_1 + R * (RTD_R_2 + R * (RTD_R_3 + R * RTD_R_4)));
+    float n = 1.0 + R * (RTD_R_5 + R * (RTD_R_6 + R * RTD_R_7));
+    return RTD_R_0 + (z / n);
+  }
+#endif
+
+#ifdef PT_POLY5
+// R2T polynomial from Analog Devices AN709 app note.
+// implementation ganked from Adafruit MAX31865 library.
+// Use for accurate temperatures -60C and below.
+// Warning! Exceeds Class B tolerance spec above +164C
+
+float Adafruit_MAX31865::RtoC_poly5(float R) {
+    float rpoly = R;
+    float temp = RTD_5_0;
+    temp += RTD_5_1 * rpoly;
+    rpoly *= R; // square
+    temp += RTD_5_2 * rpoly;
+    rpoly *= R; // ^3
+    temp += RTD_5_3 * rpoly;
+    rpoly *= R; // ^4
+    temp += RTD_5_4 * rpoly;
+    rpoly *= R; // ^5
+    temp += RTD_5_5 * rpoly;
+    return temp;
+}
+#endif
+
+#ifdef PT_POLY4
+float Adafruit_MAX31865::RtoC_poly4(float R) {
+    float rpoly = R;
+    float temp = RTD_4_0;
+    temp += RTD_4_1 * rpoly;
+    rpoly *= R; // square
+    temp += RTD_4_2 * rpoly;
+    rpoly *= R; // ^3
+    temp += RTD_4_3 * rpoly;
+    rpoly *= R; // ^4
+    temp += RTD_4_4 * rpoly;
+    return temp;
+}
+#endif
+
+#ifdef PT_POLY3
+float Adafruit_MAX31865::RtoC_poly3(float R) {
+    float rpoly = R;
+    float temp = RTD_3_0;
+    temp += RTD_3_1 * rpoly;
+    rpoly *= R; // square
+    temp += RTD_3_2 * rpoly;
+    rpoly *= R; // ^3
+    temp += RTD_3_3 * rpoly;
+    return temp;
+}
+#endif
+
+#ifdef PT_POLY2
+float Adafruit_MAX31865::RtoC_poly2(float R) {
+    float rpoly = R;
+    float temp = RTD_2_0;
+    temp += RTD_2_1 * rpoly;
+    rpoly *= R; // square
+    temp += RTD_2_2 * rpoly;
+    return temp;
+}
+#endif
+
+#ifdef PT_LINEAR_B
+  float Adafruit_MAX31865::RtoC_linearB(float R) {
+    return (R / _R0 - 1.0f) / RTD_ALPHA + RTD_BETA;
+  }
+#endif
+
+#ifdef PT_LINEAR
+  float Adafruit_MAX31865::RtoC_linear(float R) {
+    return (R / _R0 - 1.0f) / RTD_ALPHA;
+  }
+#endif

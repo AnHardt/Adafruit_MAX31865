@@ -23,7 +23,7 @@
 
 #define MAX31865_READY_PIN (2)
 
-Filter Pt100Filter = Filter(100);
+Filter Pt100Filter = Filter(1);
 
 // Use software SPI: CS, DI, DO, CLK, [ready]
   //Adafruit_MAX31865 thermo = Adafruit_MAX31865(10, 11, 12, 13, MAX31865_READY_PIN);
@@ -76,7 +76,9 @@ void loop() {
       #endif
     }
     if (!skip) {
-      Pt100Filter.fill(thermo.temperature(Pt, Rr)) ;
+      float t = thermo.temperature();
+      //Serial.println(t, 6);
+      Pt100Filter.fill(t) ;
       if (thermo.checkFault())
         printFaults();
     } // skip
@@ -95,8 +97,14 @@ void loop() {
     case '6': thermo.enable50Hz(false); break;                    // set 60HZ
     case 'a': thermo.autoConvert(true); Automode = true; break;   // set AUTO_MODE
     case 'c': thermo.clearFault(); break;                         // clear Faults
-    case 'h': Pt = 100.0; Rr = 430.0; break;                      // set Adafruit PT100-module
-    case 'k': Pt = 1000.0; Rr = 4300.0; break;                    // set Adafruit PT1000-module
+    case 'h': Pt = 100.0; Rr = 430.0;                             // set Adafruit PT100-module
+              thermo.setT0Resistance(Pt); 
+              thermo.setTrefResiatance(Rr);
+              break;
+    case 'k': Pt = 1000.0; Rr = 4300.0;                           // set Adafruit PT1000-module
+              thermo.setT0Resistance(Pt); 
+              thermo.setTrefResiatance(Rr);
+              break;
     case 'r': printResistance = !printResistance; break;          // toggle print resistance
     case 't': printtime = !printtime; break;                      // toggle print conversion-time
     case 'T': printTemp = !printTemp; break;                      // toggle print temperature
